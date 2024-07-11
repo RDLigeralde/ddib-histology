@@ -1,21 +1,20 @@
 # -----------------------------------------------------------------------------------------
 # @dcfrey
-# Adapted for training with simulated and real ultrasound images
+# Adapted for creating simulated WSIs
 # Based on https://github.com/openai/guided-diffusion/blob/main/scripts/image_sample.py
 # -----------------------------------------------------------------------------------------
 """
-Generate a large batch of image samples from a model and save them as a large
-numpy array. This can be used to produce samples for FID evaluation.
+Uses a trained diffusion model to create synthetic images from sampled Gaussian noise.
+Useful for sanity-checking individual models before attempting style transfer
 """
+import torch.distributed as dist
+from PIL import Image
+import numpy as np
+import torch as th
 
 import argparse
 import os
 import torch 
-
-import numpy as np
-from PIL import Image
-import torch as th
-import torch.distributed as dist
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (

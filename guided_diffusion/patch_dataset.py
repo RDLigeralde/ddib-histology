@@ -36,7 +36,7 @@ class PatchBag(Dataset):
 		self.filepaths = filepaths
 		lengths = [0]
 
-		all_wsi_fs = os.listdir(wsi_dir)
+		all_wsi_fs = sorted(bf.listdir(wsi_dir))
 		sharded = all_wsi_fs[shard::num_shards]
 
 		for wsi_path in sharded:
@@ -66,7 +66,7 @@ class PatchBag(Dataset):
 
 		out_dict = dict()
 		if self.filepaths is not None:
-			out_dict['filepath'] = self.filepaths[idx]
+			out_dict['filepath'] = self.filepaths[slide_idx]
 		return self.ImageToTensor(img).float(), out_dict # N x C x H x W
 
 def load_patchbag(
@@ -124,7 +124,7 @@ def load_source_data_for_domain_translation(
 	h5_dir: str = '/home/roblig22/ddib/datasets/histology/tilings/bright/patches',
 	in_channels: int = 3,
 	class_cond: bool = False
-):
+) -> Iterable:
 	"""
 	Loads source domain images for translation by creating
 	(image, kwargs) pair generator
@@ -155,17 +155,17 @@ def load_source_data_for_domain_translation(
 	)
 	yield from loader
 
-def list_wsi_files(data_dir: str) -> List[str]:
+def list_wsi_files(wsi_dir: str) -> List[str]:
 	"""
 	List  WSI files in directory
 
 	Args:
-		data_dir (str): path to WSIs
+		_dir (str): path to WSIs
 	"""
-	files = sorted(bf.listdir(data_dir))
+	files = sorted(bf.listdir(wsi_dir))
 	results = []
 	for entry in files:
-		full_path = bf.join(data_dir, entry)
+		full_path = bf.join(wsi_dir, entry)
 		ext = entry.split('.')[-1]
 		if '.' in entry and ext.lower() in ['qptiff', 'tif', 'svs']:
 			results.append(full_path)

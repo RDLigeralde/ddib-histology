@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from PIL import Image
 import torch as th
 import numpy as np
-import imageio
+import cv2
 
 from pathlib import Path
 import argparse
@@ -114,27 +114,28 @@ def translate(args: argparse.Namespace):
 
         for index in range(images.shape[0]):
             _, filename = os.path.split(extra["filepath"][index])
-            filename, ext = filename.split(".")
-            filepath = os.path.join(args.image_out, f"{filename}_final_image.{ext}")
+            filename, _ = filename.rsplit(".", 1)
+            filepath = os.path.join(args.image_out, f"{filename}_final_image.png")
             image = Image.fromarray(images[index])
             image.save(filepath)
             logger.log(f"    saving: {filepath}")
 
-            # Create a video writer for each batch index
             filename = os.path.join(args.image_out, f'{filename}_transition_video.mp4')
-            writer = imageio.get_writer(filename, fps=450)  # Adjust FPS as needed
+            fps = 450
+            frame_size = (args.image_size, args.image_size)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(filename, fourcc, fps, frame_size)
 
-            # Add frames from noise_interm_list and sample_interm_list for this batch index
             for step in range(len(noise_interm_list)):
                 noise_image = preprocess_image(noise_interm_list[step][index])
-                writer.append_data(noise_image)
+                writer.write(noise_image)
 
-            # Since the first image of sample_interm_list is the same as the last of noise_interm_list, skip it
             for step in range(1, len(sample_interm_list)):
                 sample_image = preprocess_image(sample_interm_list[step][index])
-                writer.append_data(sample_image)
+                writer.write(sample_image)
+                
+            writer.release()
 
-            writer.close()
     logger.log(f"Translation complete (っ◕‿◕)っ")
 
 def preprocess_image(image_tensor):
