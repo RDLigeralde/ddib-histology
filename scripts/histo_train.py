@@ -6,7 +6,7 @@
 """
 Train a diffusion model on images.
 """
-# %%
+
 import argparse
 import os
 import torch 
@@ -15,7 +15,7 @@ from guided_diffusion import dist_util, logger
 from guided_diffusion.patch_dataset import load_patchbag
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
-    model_and_diffusion_defaults_histology, # ultrasound defaults
+    model_and_diffusion_defaults_histology,
     create_model_and_diffusion,
     args_to_dict,
     add_dict_to_argparser,
@@ -105,6 +105,6 @@ def main():
     parser = create_argparser()
     args = parser.parse_args()
     train(args)
-# %%
+
 if __name__ == "__main__":
     main()
