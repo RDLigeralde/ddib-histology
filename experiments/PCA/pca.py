@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
-from typing import Optional
-import argparse
 import numpy as np
+import argparse
 
 from torch.utils.data import Dataset, DataLoader
 from sklearn.decomposition import IncrementalPCA
