@@ -2,13 +2,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from sklearn.decomposition import IncrementalPCA
 import torch
 
 from guided_diffusion.patch_dataset import PatchBag
 
-def take_pca(data: Dataset, n_components: int, batch_size: int) -> torch.Tensor:
+def take_pca(data: Dataset, n_components: int, batch_size: int, subset_size: int) -> torch.Tensor:
     """
     Perform PCA on the data and return the transformed data
 
@@ -16,8 +16,11 @@ def take_pca(data: Dataset, n_components: int, batch_size: int) -> torch.Tensor:
         data (Dataset): The data to perform PCA on
         n_components (int): The number of components to keep
         batch_size (int): Batch size for DataLoader
+        subset_size (int): Number of samples to take for PCA
     """
-    data_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
+    indices = np.random.choice(len(data), subset_size, replace=False)
+    subset = Subset(data, indices)
+    data_loader = DataLoader(subset, batch_size=batch_size, shuffle=False)
     ipca = IncrementalPCA(n_components=n_components)
 
     for batch in data_loader:
@@ -62,7 +65,7 @@ def plot_comps(comps1: torch.Tensor, comps2: torch.Tensor, save_path: str) -> No
     plt.savefig(save_path)
     plt.show()
 
-def compare_pcas(pb1: PatchBag, pb2: PatchBag, n_components: int, batch_size: int, save_path: str) -> None:
+def compare_pcas(pb1: PatchBag, pb2: PatchBag, n_components: int, batch_size: int, subset_size: int, save_path: str) -> None:
     """
     Full PCA Comparison pipeline
 
@@ -71,10 +74,11 @@ def compare_pcas(pb1: PatchBag, pb2: PatchBag, n_components: int, batch_size: in
         pb2 (PatchBag): PatchBag dataset of second dataset
         n_components (int): Number of components to keep in PCA
         batch_size (int): Batch size for DataLoader
+        subset_size (int): Number of samples to take for PCA
         save_path (str): Path to save plot
     """
-    pca_1 = take_pca(pb1, n_components=n_components, batch_size=batch_size)
-    pca_2 = take_pca(pb2, n_components=n_components, batch_size=batch_size)
+    pca_1 = take_pca(pb1, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
+    pca_2 = take_pca(pb2, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
     plot_comps(pca_1, pca_2, save_path)
 
 def main():
@@ -82,7 +86,8 @@ def main():
 
     #PCA Params
     parser.add_argument('--n_components', type=int, default=2)
-    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=5000)
+    parser.add_argument('--subset_size', type=int, default=50000)
 
     #Data Params
     parser.add_argument('--wsi_path_1', type=str)
@@ -94,7 +99,7 @@ def main():
     args = parser.parse_args()
     pb1 = PatchBag(args.wsi_path_1, args.h5_path_1)
     pb2 = PatchBag(args.wsi_path_2, args.h5_path_2)
-    compare_pcas(pb1, pb2, args.n_components, args.batch_size, args.save_path)
+    compare_pcas(pb1, pb2, args.n_components, args.batch_size, args.subset_size, args.save_path)
 
 if __name__ == '__main__':
     main()

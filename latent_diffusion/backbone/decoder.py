@@ -1,6 +1,7 @@
 # %%
 from latent_diffusion.backbone.positional_encoding import PositionalEncoding
 from latent_diffusion.backbone.transformer import Transformer
+from latent_diffusion.backbone.encoder import ImageEncoder
 import torch.nn as nn
 import torch
 
@@ -12,7 +13,6 @@ class ImageDecoder(nn.Module):
             num_channels: int = 3,
             embed_dim: int = 768,
             num_tokens: int = 784,
-            
         ):
         """
         Reconstructs images from CONCH embeddings
@@ -44,3 +44,25 @@ class ImageDecoder(nn.Module):
         return output
 
 # %%
+class Reconstructor(nn.Module):
+    def __init__(
+        self,
+        encoder: ImageEncoder,
+        transformer: Transformer,
+    ):
+        """
+        Full reconstruction model
+
+        Args:
+            encoder (ImageEncoder): pretrained CONCH ViT
+            transformer (Transformer): transformer for decoder
+        """
+        super().__init__()
+        self.encoder = encoder
+        self.transformer = transformer
+        self.decoder = ImageDecoder(transformer)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded

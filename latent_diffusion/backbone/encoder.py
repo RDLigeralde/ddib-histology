@@ -10,7 +10,7 @@ import os
 load_dotenv()
 hf_auth_token = os.getenv("HF_AUTH_TOKEN")
 
-class Encoder(nn.Module):
+class ImageEncoder(nn.Module):
     def __init__(self):
         super().__init__()
 

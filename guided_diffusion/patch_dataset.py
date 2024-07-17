@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 from typing import Optional, Iterable, List, Tuple
-import mpi4py.MPI as MPI
 import blobfile as bf
 import os
 
@@ -16,8 +15,6 @@ class PatchBag(Dataset):
 		wsi_dir: str,
 		h5_dir: str,
 		img_transforms: transforms.Compose = None,
-		shard: int = MPI.COMM_WORLD.Get_rank(),
-		num_shards: int = MPI.COMM_WORLD.Get_size(),
 		filepaths: List[str] = None
 	) -> None:
 		"""
@@ -27,19 +24,15 @@ class PatchBag(Dataset):
 			wsi_dir (str): directory containing WSIs from single domain
 			h5_dir (str): directory with .h5 files for each equivalently named WSI
 			img_transforms (transforms.Compose, optional): patch transformations on PIL images
-			shard (int, optional): rank of current process
-			num_shards (int, optional): total number of processes
 			filepaths (List[str], optional): list of filepaths to patches
 		"""
 		self.img_transforms = img_transforms
 		self.slide_bags = []
 		self.filepaths = filepaths
-		lengths = [0]
+		self.lengths = [0]
 
 		all_wsi_fs = sorted(bf.listdir(wsi_dir))
-		sharded = all_wsi_fs[shard::num_shards]
-
-		for wsi_path in sharded:
+		for wsi_path in all_wsi_fs:
 			h5_path = os.path.join(h5_dir, os.path.splitext(wsi_path)[0] + '.h5')
 			if not os.path.exists(h5_path):
 				continue
@@ -47,10 +40,10 @@ class PatchBag(Dataset):
 				wsi_path = os.path.join(wsi_dir, wsi_path)
 				slide_bag = Whole_Slide_Bag_FP(h5_path, wsi_path, img_transforms)
 				self.slide_bags.append(slide_bag)
-				lengths.append(len(slide_bag))
+				self.lengths.append(len(slide_bag))
 
-		self.length = sum(lengths)
-		self.cutoffs = np.cumsum(lengths)[:-1] # cutoffs[i]: index of first patch in slide_bags[i]
+		self.length = sum(self.lengths)
+		self.cutoffs = np.cumsum(self.lengths)[:-1] # cutoffs[i]: index of first patch in slide_bags[i]
 		self.ImageToTensor = transforms.Compose([
 			transforms.PILToTensor()
 		])
@@ -68,6 +61,44 @@ class PatchBag(Dataset):
 		if self.filepaths is not None:
 			out_dict['filepath'] = self.filepaths[slide_idx]
 		return self.ImageToTensor(img).float(), out_dict # N x C x H x W
+	
+class MultiPatchBag(Dataset):
+	def __init__(
+		self,
+		wsi_dirs: List[str],
+		h5_dirs: List[str],
+	) -> None:
+		"""
+		Dataset of patches from multiple domain-specific WSIs
+
+		Args:
+			wsi_dirs (List[str]): directories containing WSIs from single domain
+			h5_dirs (List[str]): directories with .h5 files for each equivalently named WSI
+		"""
+		self.patch_bags = []
+		self.lengths = [0]
+		self.pb_lengths = [0]
+
+		for wsi_dir, h5_dir in zip(wsi_dirs, h5_dirs):
+			patch_bag = PatchBag(wsi_dir, h5_dir)
+			self.patch_bags.append(patch_bag)
+			self.lengths.extend(patch_bag.lengths)
+			self.pb_lengths.append(patch_bag.__len__())
+
+		self.length = sum(self.lengths)
+		self.idx_cutoffs = np.cumsum(self.lengths)[:-1] # idx_cutoffs[i]: index of first patch in implicit slide_bags[i]
+		self.pb_cutoffs = np.cumsum(self.pb_lengths)[:-1] # pb_cutoffs[i]: index of first patch in patch_bags[i]
+		
+	def __len__(self):
+		return self.length
+
+	def __getitem__(self, idx: int) -> torch.Tensor:
+		pb_idx = np.searchsorted(self.pb_cutoffs, idx, side='right') - 1
+		slide_idx = np.searchsorted(self.idx_cutoffs, idx, side='right') - 1
+		patch_bag = self.patch_bags[pb_idx]
+		patch_idx = idx - self.idx_cutoffs[slide_idx]
+		img = patch_bag[patch_idx][0]
+		return img.float()
 
 def load_patchbag(
 	wsi_dir: str,
@@ -91,9 +122,51 @@ def load_patchbag(
 	dataset = PatchBag(
 		wsi_dir,
 		h5_dir, 
-		img_transforms,
-		shard = MPI.COMM_WORLD.Get_rank(),
-		num_shards = MPI.COMM_WORLD.Get_size(),
+		img_transforms
+	)
+
+	if deterministic:
+		loader = DataLoader(
+			dataset, 
+			batch_size = batch_size, 
+			shuffle = False, 
+			num_workers = num_workers, 
+			drop_last = True
+		)
+	else:
+		loader = DataLoader(
+			dataset, 
+			batch_size = batch_size, 
+			shuffle = True, 
+			num_workers = num_workers, 
+			drop_last = True
+		)
+
+	while True:
+		yield from loader
+
+def load_multipatchbag(
+	wsi_dirs: List[str],
+	h5_dirs: List[str],
+	batch_size: int,
+	img_transforms: Optional[transforms.Compose] = None,
+	deterministic: bool = False,
+	num_workers: int = 4
+) -> Iterable:
+	"""
+	Data generator for patches from multiple-domain WSIs
+
+	Args:
+		wsi_dirs (List[str]): paths to WSIs
+		h5_dirs (List[str]): paths to .h5 files w/ patch coords
+		batch_size (int): patches per batch
+		img_transforms (Optional[transforms.Compose], optional): patch transformations
+		deterministic (bool, optional): whether to used fixed ordering
+		num_workers (int, optional): number of workers for data loading
+	"""
+	dataset = MultiPatchBag(
+		wsi_dirs,
+		h5_dirs
 	)
 
 	if deterministic:
