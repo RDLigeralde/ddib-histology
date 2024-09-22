@@ -22,6 +22,15 @@ from guided_diffusion.script_util import (
 )
 from guided_diffusion.train_util import TrainLoop
 
+def write_arg_dict(log_dir, arg_dict, training_params):
+    with open(os.path.join(log_dir, "args.txt"), "w") as f:
+        f.write("Model Params:")
+        for k, v in arg_dict.items():
+            f.write(f"{k}: {v}\n")
+        f.write("\nTraining Params:")
+        for k, v in training_params.items():
+            f.write(f"{k}: {v}\n")
+
 def train(args: argparse.Namespace):
     """
     Single-domain diffusion training script
@@ -34,14 +43,19 @@ def train(args: argparse.Namespace):
 
     if not os.path.exists(args.model_out):
         os.makedirs(args.model_out)
+
     log_dir = args.model_out
     logger.configure(log_dir, use_datetime=False)
     print(f'Writing out to {log_dir}')
 
     logger.log("Creating model and diffusion...")
+    arg_dict = args_to_dict(args, model_and_diffusion_defaults_histology().keys())
     model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults_histology().keys()) # DDIB defaults
+        **arg_dict # DDIB defaults
     )
+    train_keys  = ['lr', 'batch_size', 'microbatch', 'log_interval', 'save_interval', 'ema_rate', 'fp16_scale_growth', 'weight_decay', 'lr_anneal_steps', 'stop']
+    training_params = {k: v for k, v in vars(args).items() if k in train_keys}
+    write_arg_dict(log_dir, arg_dict, training_params)
     model.to(device)
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
@@ -55,7 +69,8 @@ def train(args: argparse.Namespace):
     )
 
     logger.log("Training...")
-    TrainLoop(
+    try:
+        TrainLoop(
         model=model,
         diffusion=diffusion,
         data=data,
@@ -73,7 +88,15 @@ def train(args: argparse.Namespace):
         lr_anneal_steps=args.lr_anneal_steps,
         stop=args.stop,
         device=device
-    ).run_loop()
+        ).run_loop()
+    except torch.cuda.OutOfMemoryError:
+        logger.log("Memory limit exceeded")
+        allocated = torch.cuda.memory_allocated() / (1024**2)
+        cached = torch.cuda.memory_reserved() / (1024**2)
+        logger.log(f"Allocated: {allocated:.2f} MB")
+        logger.log(f"Cached: {cached:.2f} MB")
+        torch.cuda.empty_cache()
+
     
 def create_argparser():
     defaults = dict()
@@ -81,22 +104,27 @@ def create_argparser():
 
     parser = argparse.ArgumentParser()
     
+    # I/O
     parser.add_argument("--model_out",type=str,default="./models/", help="Model output dir")
     parser.add_argument("--log_dir",type=str,default="./models/", help="Log output dir")
     parser.add_argument("--resume_checkpoint",type=str,default="", help="Training resume point")
+    parser.add_argument("--log_interval",type=int,default=100, help="Log interval")
+    parser.add_argument("--save_interval",type=int,default=1000, help="Save interval")
+    parser.add_argument("--wsi_dir",type=str, help="Path to WSI directory")
+    parser.add_argument("--h5_dir",type=str, help="Path to H5 directory")
+
+    # Training Basics
     parser.add_argument("--lr",type=float,default=1e-5, help="Learning rate")
     parser.add_argument("--batch_size",type=int,default=1, help="Batch size")
     parser.add_argument("--microbatch",type=int,default=-1, help="Microbatch size")
-    parser.add_argument("--log_interval",type=int,default=100, help="Log interval")
-    parser.add_argument("--save_interval",type=int,default=1000, help="Save interval")
     parser.add_argument("--ema_rate",type=float,default=0.9999, help="EMA rate")
     parser.add_argument("--schedule_sampler",type=str,default="uniform", help="Schedule sampler")
     parser.add_argument("--fp16_scale_growth",type=float,default=1e-3, help="FP16 scale growth")
     parser.add_argument("--weight_decay",type=float,default=0.0, help="Weight decay")
     parser.add_argument("--lr_anneal_steps",type=int,default=0, help="Learning rate anneal (decay) steps")
     parser.add_argument("--stop",type=int,default=10000, help="Max iteration count")
-    parser.add_argument("--wsi_dir",type=str, help="Path to WSI directory")
-    parser.add_argument("--h5_dir",type=str, help="Path to H5 directory")
+
+    # Diffusion Params
     
     add_dict_to_argparser(parser, defaults)
     return parser

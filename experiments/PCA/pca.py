@@ -1,14 +1,15 @@
 import matplotlib.pyplot as plt
+from typing import Tuple
 import numpy as np
 import argparse
 
 from torch.utils.data import Dataset, DataLoader, Subset
-from sklearn.decomposition import IncrementalPCA
+from sklearn.decomposition import PCA
 import torch
 
 from guided_diffusion.patch_dataset import PatchBag
 
-def take_pca(data: Dataset, n_components: int, batch_size: int, subset_size: int) -> torch.Tensor:
+def take_pca(data: Dataset, n_components: int, batch_size: int, subset_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Perform PCA on the data and return the transformed data
 
@@ -21,46 +22,35 @@ def take_pca(data: Dataset, n_components: int, batch_size: int, subset_size: int
     indices = np.random.choice(len(data), subset_size, replace=False)
     subset = Subset(data, indices)
     data_loader = DataLoader(subset, batch_size=batch_size, shuffle=False)
-    ipca = IncrementalPCA(n_components=n_components)
+    pca = PCA(n_components=n_components)
 
-    for batch in data_loader:
-        X, _ = batch
-        X = X.view(X.size(0), -1).numpy()
-        ipca.partial_fit(X)
+    X, _ = next(iter(data_loader))
+    X = X.view(X.size(0), -1).numpy()
+    pca.fit_transform(X)
+    return torch.tensor(X), torch.tensor(pca.components_)
 
-    X_pca_list = []
-    for batch in data_loader:
-        X, _ = batch
-        X = X.view(X.size(0), -1).numpy()
-        X_pca = ipca.transform(X)
-        X_pca_list.append(X_pca)
-
-    X_pca = np.vstack(X_pca_list)
-
-    return torch.tensor(X_pca)
-
-def plot_comps(comps1: torch.Tensor, comps2: torch.Tensor, save_path: str) -> None:
+def plot_comps(comps1: torch.Tensor, vecs1: torch.Tensor, comps2: torch.Tensor, vecs2: torch.Tensor, save_path: str) -> None:
     """
     Plot the first two components of PCA over two datasets.
 
     Args:
         comps1 (torch.Tensor): PCA components for the first dataset.
+        vecs1 (torch.Tensor): PCA vectors for the first dataset.
         comps2 (torch.Tensor): PCA components for the second dataset.
+        vecs2 (torch.Tensor): PCA vectors for the second dataset.
         save_path (str): Path to save plot
     """
-    _, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 7))
+    plt.scatter(comps1[:, 0], comps1[:, 1], alpha=0.5, label='Bright', color='orange')
+    plt.scatter(comps2[:, 0], comps2[:, 1], alpha=0.5, label='Dim', color='blue')
 
-    # Plot first set of components
-    ax1.scatter(comps1[:, 0], comps1[:, 1], alpha=0.5)
-    ax1.set_xlabel('Component 1')
-    ax1.set_ylabel('Component 2')
-    ax1.set_title('PCA Components - Set 1')
-
-    # Plot second set of components
-    ax2.scatter(comps2[:, 0], comps2[:, 1], alpha=0.5)
-    ax2.set_xlabel('Component 1')
-    ax2.set_ylabel('Component 2')
-    ax2.set_title('PCA Components - Set 2')
+    for i, (comp1, comp2) in enumerate(zip(vecs1, vecs2)):
+        plt.arrow(0, 0, comp1[0]*2, comp1[1]*2, color='orange', width=0.01, label=f'Bright PC{i+1}' if i == 0 else "")
+        plt.arrow(0, 0, comp2[0]*2, comp2[1]*2, color='blue', width=0.01, label=f'Dim PC{i+1}' if i == 0 else "")
+    
+    plt.xlabel('Component 1')
+    plt.ylabel('Component 2')
+    plt.title('PCA Components and Projections Overlay')
+    plt.legend()
 
     plt.savefig(save_path)
     plt.show()
@@ -77,17 +67,17 @@ def compare_pcas(pb1: PatchBag, pb2: PatchBag, n_components: int, batch_size: in
         subset_size (int): Number of samples to take for PCA
         save_path (str): Path to save plot
     """
-    pca_1 = take_pca(pb1, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
-    pca_2 = take_pca(pb2, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
-    plot_comps(pca_1, pca_2, save_path)
+    comps1,vecs1 = take_pca(pb1, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
+    comps2,vecs2= take_pca(pb2, n_components=n_components, batch_size=batch_size, subset_size=subset_size)
+    plot_comps(comps1, vecs1, comps2, vecs2, save_path)
 
 def main():
     parser = argparse.ArgumentParser()
 
     #PCA Params
     parser.add_argument('--n_components', type=int, default=2)
-    parser.add_argument('--batch_size', type=int, default=5000)
-    parser.add_argument('--subset_size', type=int, default=50000)
+    parser.add_argument('--subset_size', type=int, default=10_000)
+    parser.add_argument('--batch_size', type=int, default=10_000)
 
     #Data Params
     parser.add_argument('--wsi_path_1', type=str)

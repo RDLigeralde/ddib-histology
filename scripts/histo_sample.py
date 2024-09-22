@@ -113,7 +113,7 @@ def main(args):
 
 def create_argparser():
     defaults = dict()
-    defaults.update(model_and_diffusion_defaults_histology()) # ultrasound defaults
+    defaults.update(model_and_diffusion_defaults_histology()) # defaults
     parser = argparse.ArgumentParser()
     # Sampling Defaults
     parser.add_argument("--clip_denoised",type=bool,default=True)

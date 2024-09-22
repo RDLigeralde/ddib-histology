@@ -1,3 +1,4 @@
+# %%
 from conch.open_clip_custom import create_model_from_pretrained
 from torchvision import transforms
 import torch.nn as nn
@@ -20,7 +21,7 @@ class ImageEncoder(nn.Module):
             hf_auth_token=hf_auth_token
         )
 
-        self.trunk = model.visual.trunk
+        self.trunk = model.visual.trunk # 784 tokens (28 * 28 patches as tokens)
 
         resize_target = 448
 
@@ -39,4 +40,7 @@ class ImageEncoder(nn.Module):
         x = self.pipe(x)
         with torch.no_grad():
             x = self.trunk(x)
-        return x[:, 1:, :] # remove CLS
+        x = x[:, 1:, :] # remove CLS
+        return x # B x 784 x 768
+
+# %%
