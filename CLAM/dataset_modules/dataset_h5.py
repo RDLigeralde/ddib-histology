@@ -1,7 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
-from mpi4py import MPI
 import torch
 
 import numpy as np
