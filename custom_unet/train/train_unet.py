@@ -128,7 +128,7 @@ def train(
     if load_path:
         model.load_state_dict(torch.load(load_path))
     if len(devices) > 1:
-        model = nn.DataParallel(model, device_ids=devices)
+        model = nn.parallel.DistributedDataParallel(model, device_ids=devices)
 
     optimizer = optimizer(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
@@ -181,7 +181,10 @@ def train(
                 val_hist.append(avg_val_loss)
 
             if epoch % save_interval == 0:
-                torch.save(model.module.state_dict(), os.path.join(out_dir, f"model_{epoch:03d}.pt"))
+                if len(devices) > 1:
+                    torch.save(model.module.state_dict(), os.path.join(out_dir, f"model_{epoch:03d}.pt"))
+                else:
+                    torch.save(model.state_dict(), os.path.join(out_dir, f"model_{epoch:03d}.pt"))
     
     plot_hist(train_hist, val_hist, out_dir)
 

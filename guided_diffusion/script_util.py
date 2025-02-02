@@ -474,8 +474,11 @@ def create_gaussian_diffusion(
         rescale_timesteps=rescale_timesteps,
     )
 
-def add_dict_to_argparser(parser, default_dict):
+def add_dict_to_argparser(parser, default_dict, overwrite=False):
+    args = parser.parse_args()
     for k, v in default_dict.items():
+        if not overwrite and hasattr(args, k):
+            continue
         v_type = type(v)
         if v is None:
             v_type = str

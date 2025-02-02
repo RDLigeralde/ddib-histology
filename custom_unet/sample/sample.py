@@ -1,5 +1,5 @@
+from diffusers import DDPMScheduler, DDIMScheduler
 from custom_unet.make_unet import UNet
-from diffusers import DDPMScheduler
 import torch.nn as nn
 import torch
 
@@ -12,6 +12,7 @@ def sample_images(
     model: nn.Module,
     num_images: int,
     num_timesteps: int,
+    scheduler_type,
     beta_schedule: str = "linear",
     device: str = "cuda",
 ) -> List[torch.Tensor]:
@@ -31,7 +32,9 @@ def sample_images(
     model.eval()
     img_size, channels = model.img_size, model.channels
     noise_curr = torch.randn(num_images, channels, img_size, img_size).to(device)
-    scheduler = DDPMScheduler(num_train_timesteps=num_timesteps, beta_schedule=beta_schedule)
+    scheduler = scheduler_type(num_train_timesteps=num_timesteps, beta_schedule=beta_schedule)
+    if hasattr(scheduler, "set_timesteps"):
+        scheduler.set_timesteps(num_timesteps)
     with torch.inference_mode():
         steps = scheduler.timesteps
         for step in steps:
@@ -73,6 +76,10 @@ def _deparallelize_state_dict(state_dict: dict):
     return {key.replace("module.", ""): value for key, value in state_dict.items()}
 
 def create_argparser():
+    NOISE_CHOICES = {
+        "ddim": DDIMScheduler,
+        "ddpm": DDPMScheduler
+    }
     parser = argparse.ArgumentParser()
 
     # Sample Args
@@ -80,6 +87,7 @@ def create_argparser():
     parser.add_argument("--num_timesteps", type=int, help="Number of timesteps to sample")
     parser.add_argument("--beta_schedule", type=str, default="linear", help="Beta schedule")
     parser.add_argument("--device", type=str, default="cuda", help="Device to sample on")
+    parser.add_argument("--scheduler_type", type=str, choices=NOISE_CHOICES.keys(), default="ddpm", help="Scheduler type")
 
     # Model Args
     parser.add_argument("--model_path", type=str)
@@ -97,6 +105,7 @@ def create_argparser():
     parser.add_argument("--patch_size", type=int, default=256)
 
     args = parser.parse_args()
+    args.scheduler_type = NOISE_CHOICES[args.scheduler_type]
     return args
 
 def main():
@@ -121,9 +130,9 @@ def main():
     model.load_state_dict(sd)
 
     model_dir = os.path.dirname(args.model_path)
-    plt_path = os.path.join(model_dir, f"{args.num_images}_samples.png")
+    plt_path = os.path.join(model_dir, f"{args.num_images}_samples_{args.scheduler_type.__name__[:4]}_{args.num_timesteps}.png")
 
-    images = sample_images(model, args.num_images, args.num_timesteps, args.beta_schedule, args.device)
+    images = sample_images(model, args.num_images, args.num_timesteps, args.scheduler_type, args.beta_schedule, args.device)
     plot_images(images, plt_path)
 
 if __name__ == "__main__":

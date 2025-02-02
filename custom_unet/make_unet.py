@@ -67,6 +67,7 @@ class UNet(nn.Module):
             attention_head_dim=self.num_heads,
             dropout=self.dropout
         )
+        self.dtype = self.model.dtype
         self.size_mb = sum(p.numel() for p in self.model.parameters()) * 4 / (1024 ** 2)
 
     def forward(self, x: Tensor, ts: Tensor) -> Tensor:

@@ -18,9 +18,7 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
 )
-from guided_diffusion.patch_dataset import (
-    load_source_data_for_domain_translation
-)
+from dataloading.patch_dataset import qpb_one_shot
 
 def translate(args: argparse.Namespace):
     """
@@ -38,17 +36,19 @@ def translate(args: argparse.Namespace):
     logger.configure(args.image_out, use_datetime=False)
 
     logger.log("Creating model and diffusion...")
+    arg_dict  = args_to_dict(args, model_and_diffusion_defaults_histology().keys())
     model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults_histology().keys())
+        **arg_dict
     )
 
     logger.log('Sending model to GPU...')
     model = model.to(device)
 
     logger.log('Loading in data...')
-    data = load_source_data_for_domain_translation(
+    data = qpb_one_shot(
         wsi_dir=args.wsi_dir,
-        h5_dir=args.h5_dir,
+        coord_dir=args.h5_dir,
+        image_size=args.image_size,
         batch_size=args.batch_size
     )
 
@@ -113,14 +113,12 @@ def translate(args: argparse.Namespace):
         images = np.concatenate(images, axis=0)
 
         for index in range(images.shape[0]):
-            _, filename = os.path.split(extra["filepath"][index])
-            filename, _ = filename.rsplit(".", 1)
-            filepath = os.path.join(args.image_out, f"{filename}_final_image.png")
+            filepath = os.path.join(args.image_out, f"final_image_{index}.png")
             image = Image.fromarray(images[index])
             image.save(filepath)
             logger.log(f"    saving: {filepath}")
 
-            filename = os.path.join(args.image_out, f'{filename}_transition_video.mp4')
+            filename = os.path.join(args.image_out, f'transition_video_{index}.mp4')
             fps = 450
             frame_size = (args.image_size, args.image_size)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -159,6 +157,9 @@ def create_argparser():
     parser.add_argument("--h5_dir",type=str,default="",help="Path to source h5s")
     parser.add_argument("--image_out",type=str,default="",help="Path to save translated images")
     parser.add_argument("--eta",type=float,default=0.0,help="Diffusion eta")
+    parser.add_argument("--resume_checkpoint",type=str,default="", help="Training resume point")
+    parser.add_argument("--log_interval",type=int,default=100, help="Log interval")
+    parser.add_argument("--save_interval",type=int,default=1000, help="Save interval")
 
     # Sampling Defaults
     parser.add_argument("--clip_denoised",type=bool,default=True)
@@ -170,18 +171,27 @@ def create_argparser():
 
     # Training Defaults
     parser.add_argument("--log_dir",type=str,default="./models/")
-    parser.add_argument("--resume_checkpoint",type=str,default="")
-    parser.add_argument("--lr",type=float,default=1e-5)
-    parser.add_argument("--microbatch",type=int,default=-1)
-    parser.add_argument("--log_interval",type=int,default=100)
-    parser.add_argument("--save_interval",type=int,default=1000)
-    parser.add_argument("--ema_rate",type=float,default=0.9999)
-    parser.add_argument("--schedule_sampler",type=str,default="uniform")
-    parser.add_argument("--fp16_scale_growth",type=float,default=1e-3)
-    parser.add_argument("--weight_decay",type=float,default=0.0)
-    parser.add_argument("--lr_anneal_steps",type=int,default=0)
-    parser.add_argument("--stop",type=int,default=10000)
-    parser.add_argument("--model_out",type=str,default="./models/")
+    parser.add_argument("--lr",type=float,default=1e-5, help="Learning rate")
+    parser.add_argument("--microbatch",type=int,default=-1, help="Microbatch size")
+    parser.add_argument("--ema_rate",type=float,default=0.9999, help="EMA rate")
+    parser.add_argument("--schedule_sampler",type=str,default="uniform", help="Schedule sampler")
+    parser.add_argument("--fp16_scale_growth",type=float,default=1e-3, help="FP16 scale growth")
+    parser.add_argument("--weight_decay",type=float,default=0.0, help="Weight decay")
+    parser.add_argument("--lr_anneal_steps",type=int,default=0, help="Learning rate anneal (decay) steps")
+    parser.add_argument("--stop",type=int,default=10000, help="Max iteration count")
+
+    # Model Params
+    parser.add_argument("--image_size", type=int, help="Image size")
+    parser.add_argument("--in_channels", type=int, help="Number of input channels")
+    parser.add_argument("--num_channels", type=int, help="Number of input channels")
+    parser.add_argument("--channel_mult", type=str, help="Channel multipliers") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_res_blocks', type=int, help="Number of residual blocks")
+    parser.add_argument('--attention_resolutions', type=str, help="Attention resolutions") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_heads', type=int, help="Number of attention heads")
+
+    # Diffusion Params
+    parser.add_argument("--noise_schedule",type=str, help="Noise schedule")
+    parser.add_argument("--diffusion_steps",type=int, help="Diffusion steps")
     
     add_dict_to_argparser(parser, defaults)
     return parser

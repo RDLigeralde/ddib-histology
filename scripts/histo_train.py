@@ -12,7 +12,7 @@ import os
 import torch 
 
 from guided_diffusion import dist_util, logger
-from guided_diffusion.patch_dataset import load_patchbag
+from dataloading.patch_dataset import load_qpb
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults_histology,
@@ -51,21 +51,31 @@ def train(args: argparse.Namespace):
     logger.log("Creating model and diffusion...")
     arg_dict = args_to_dict(args, model_and_diffusion_defaults_histology().keys())
     model, diffusion = create_model_and_diffusion(
-        **arg_dict # DDIB defaults
+        **arg_dict
     )
-    train_keys  = ['lr', 'batch_size', 'microbatch', 'log_interval', 'save_interval', 'ema_rate', 'fp16_scale_growth', 'weight_decay', 'lr_anneal_steps', 'stop']
+    train_keys  = [
+        'lr', 
+        'batch_size', 
+        'microbatch', 
+        'log_interval', 
+        'save_interval', 
+        'ema_rate', 
+        'fp16_scale_growth', 
+        'weight_decay', 
+        'lr_anneal_steps', 
+        'stop'
+    ]
+
     training_params = {k: v for k, v in vars(args).items() if k in train_keys}
     write_arg_dict(log_dir, arg_dict, training_params)
     model.to(device)
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("Creating data loader...")
-    data = load_patchbag(
+    data = load_qpb(
         wsi_dir=args.wsi_dir,
-        h5_dir=args.h5_dir,
-        batch_size=args.batch_size,
-        img_transforms = None,
-        deterministic=True,
+        coord_dir=args.h5_dir,
+        batch_size=args.batch_size
     )
 
     logger.log("Training...")
@@ -124,8 +134,19 @@ def create_argparser():
     parser.add_argument("--lr_anneal_steps",type=int,default=0, help="Learning rate anneal (decay) steps")
     parser.add_argument("--stop",type=int,default=10000, help="Max iteration count")
 
+    # Model Params
+    parser.add_argument("--image_size", type=int, help="Image size")
+    parser.add_argument("--in_channels", type=int, help="Number of input channels")
+    parser.add_argument("--num_channels", type=int, help="Number of input channels")
+    parser.add_argument("--channel_mult", type=str, help="Channel multipliers") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_res_blocks', type=int, help="Number of residual blocks")
+    parser.add_argument('--attention_resolutions', type=str, help="Attention resolutions") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_heads', type=int, help="Number of attention heads")
+
     # Diffusion Params
-    
+    parser.add_argument("--noise_schedule",type=str, help="Noise schedule")
+    parser.add_argument("--diffusion_steps",type=int, help="Diffusion steps")
+
     add_dict_to_argparser(parser, defaults)
     return parser
 

@@ -47,14 +47,20 @@ def show_npz(data, directory, in_channels=3, ncols=10):
     imgs.save(os.path.join(directory, f"montage_{len(data)}.png"))
 
 def main(args):
-
+    if args.use_ddim:
+        print('nah')
+        return
     log_dir = f"{args.model_path}_{args.num_samples}-samples_t-{args.timestep_respacing}_useddim-{args.use_ddim}"
     logger.configure(log_dir, use_datetime=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     logger.log("Creating model and diffusion...")
+    arg_dict = args_to_dict(args, model_and_diffusion_defaults_histology().keys())
+    if arg_dict['use_ddim']:
+        print('nahahah')
+        return
     model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults_histology().keys()) # ultrasound defaults
+        **arg_dict
     )
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
@@ -115,28 +121,49 @@ def create_argparser():
     defaults = dict()
     defaults.update(model_and_diffusion_defaults_histology()) # defaults
     parser = argparse.ArgumentParser()
+
+
     # Sampling Defaults
     parser.add_argument("--clip_denoised",type=bool,default=True)
     parser.add_argument("--num_samples",type=int,default=100)
-    parser.add_argument("--batch_size",type=int,default=8)
-    parser.add_argument("--use_ddim",type=bool,default=True)
+    parser.add_argument("--use_ddim",type=bool,default=False)
     parser.add_argument("--model_path",type=str,default="")
     parser.add_argument("--experiment",type=str,default='none')
-    # Training Defaults
-    parser.add_argument("--log_dir",type=str,default="./models/")
-    parser.add_argument("--resume_checkpoint",type=str,default="")
-    parser.add_argument("--lr",type=float,default=1e-5)
-    parser.add_argument("--microbatch",type=int,default=-1)
-    parser.add_argument("--log_interval",type=int,default=100)
-    parser.add_argument("--save_interval",type=int,default=1000)
-    parser.add_argument("--ema_rate",type=float,default=0.9999)
-    parser.add_argument("--schedule_sampler",type=str,default="uniform")
-    parser.add_argument("--fp16_scale_growth",type=float,default=1e-3)
-    parser.add_argument("--weight_decay",type=float,default=0.0)
-    parser.add_argument("--lr_anneal_steps",type=int,default=0)
-    parser.add_argument("--stop",type=int,default=10000)
-    parser.add_argument("--data_dir",type=str,default="")
-    parser.add_argument("--model_out",type=str,default="./models/")
+
+    # Training Basics
+    parser.add_argument("--lr",type=float,default=1e-5, help="Learning rate")
+    parser.add_argument("--microbatch",type=int,default=-1, help="Microbatch size")
+    parser.add_argument("--batch_size",type=int,default=8)
+    parser.add_argument("--ema_rate",type=float,default=0.9999, help="EMA rate")
+    parser.add_argument("--schedule_sampler",type=str,default="uniform", help="Schedule sampler")
+    parser.add_argument("--fp16_scale_growth",type=float,default=1e-3, help="FP16 scale growth")
+    parser.add_argument("--weight_decay",type=float,default=0.0, help="Weight decay")
+    parser.add_argument("--lr_anneal_steps",type=int,default=0, help="Learning rate anneal (decay) steps")
+    parser.add_argument("--stop",type=int,default=10000, help="Max iteration count")
+
+    # Model Params
+    parser.add_argument("--image_size", type=int, help="Image size")
+    parser.add_argument("--in_channels", type=int, help="Number of input channels")
+    parser.add_argument("--num_channels", type=int, help="Number of input channels")
+    parser.add_argument("--channel_mult", type=str, help="Channel multipliers") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_res_blocks', type=int, help="Number of residual blocks")
+    parser.add_argument('--attention_resolutions', type=str, help="Attention resolutions") # WHY WOULD YOU MAKE THIS A STRING????
+    parser.add_argument('--num_heads', type=int, help="Number of attention heads")
+
+    # Diffusion Params
+    parser.add_argument("--noise_schedule",type=str, help="Noise schedule")
+    parser.add_argument("--diffusion_steps",type=int, help="Diffusion steps")
+    parser.add_argument("--timestep_respacing",type=str, help="Timestep respacing")
+
+    # I/O
+    parser.add_argument("--model_out",type=str,default="./models/", help="Model output dir")
+    parser.add_argument("--log_dir",type=str,default="./models/", help="Log output dir")
+    parser.add_argument("--resume_checkpoint",type=str,default="", help="Training resume point")
+    parser.add_argument("--log_interval",type=int,default=100, help="Log interval")
+    parser.add_argument("--save_interval",type=int,default=1000, help="Save interval")
+    parser.add_argument("--wsi_dir",type=str, help="Path to WSI directory")
+    parser.add_argument("--h5_dir",type=str, help="Path to H5 directory")
+
     add_dict_to_argparser(parser, defaults)
     return parser
 
