@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 import matplotlib.pyplot as plt
-from typing import List
+from typing import List, Union
 from PIL import Image
 import argparse
 import os
@@ -19,13 +19,13 @@ from diffusers import (
 def sample_images(
     model: nn.Module,
     batch_size: int,
-    timesteps: List[int],  # List of timesteps to sample at
+    timesteps: List[int],
     sampling_method: str,
     beta_schedule: str = "linear",
     device: str = "cuda",
     num_train_timesteps: int = 1000,
-    eta: float = 0.0  # only relevant for DDIM
-) -> List[List[Image.Image]]:
+    etas: List[float] = [0.0]  # only relevant for DDIM
+) -> List[np.ndarray]:
     model.eval()
     if sampling_method == "ddim":
         pipe_type = DDIMPipeline
@@ -44,43 +44,42 @@ def sample_images(
     pipe = pipe_type(model, scheduler).to(device)
 
     all_images = []
-    for t in timesteps:
-        images = pipe(
-            batch_size=batch_size,
-            num_inference_steps=t,
-            eta=eta
-        )['images']
-        all_images.append(images)
+
+    for t in timesteps: # only one of these loops matters in practice
+        for eta in etas:
+            images = pipe(
+                batch_size=batch_size,
+                num_inference_steps=t,
+                eta=eta,
+                output_type='np.array'
+            )['images']
+            all_images.append(images)
 
     return all_images
     
-def plot_images(images: List[List[Image.Image]], out_dir: str, timesteps: List[int]):
-    num_rows = len(images)  # Number of timesteps
-    num_cols = len(images[0])  # Number of images per timestep
-
+def plot_images(images: List[np.ndarray], out_dir: str, values: List, const: int, experiment: str):
+    num_rows = len(images)
+    num_cols = images[0].shape[0]
+    
     _, axs = plt.subplots(num_rows, num_cols, figsize=(num_cols * 5, num_rows * 5))
-
+    
     if num_rows == 1:
         axs = [axs]
     if num_cols == 1:
         axs = [[ax] for ax in axs]
-
-    for i, img_batch in enumerate(images):  # Iterate over timesteps
-        for j, img in enumerate(img_batch):  # Iterate over images in the batch
-            img_array = np.array(img)
-
-            if img_array.dtype == np.uint8:
-                img_array = img_array.astype(np.float32) / 255.0
-
-            axs[i][j].imshow(img_array)
-            axs[i][j].axis('off')
-
-        axs[i][0].set_ylabel(f"Step {timesteps[i]}", fontsize=16)  # Label for the timestep
-
+    
+    for i, img_batch in enumerate(images):
+        for j, img in enumerate(img_batch):
+            axs[i, j].imshow(img)
+        
+        axs[i, 0].set_ylabel(f"x={values[i]}", fontsize=16)
+    
     for j in range(num_cols):
-        axs[0][j].set_title(f"Image {j + 1}", fontsize=16)
-
+        axs[0, j].set_title(f"Image {j + 1}", fontsize=16)
+    
     plt.tight_layout()
+    fixed = "timesteps" if experiment == "eta" else "eta"
+    plt.title(f"Sampling Test: {experiment} ({fixed}=={const})")
     plt.savefig(out_dir)
     plt.show()
 
@@ -104,15 +103,17 @@ def create_argparser():
     parser = argparse.ArgumentParser()
 
     # Sample Args
-    parser.add_argument("--batch_size", type=int, help="Number of images to sample")
-    parser.add_argument("--timestep_min", type=int, default=100, help="Minimum timestep to sample at")
-    parser.add_argument("--timestep_max", type=int, default=1000, help="Maximum timestep to sample at")
-    parser.add_argument("--timestep_count", type=int, default=10, help="Number of timesteps to sample at")
-    parser.add_argument("--eta", type=float)
-    parser.add_argument("--beta_schedule", type=str, default="linear", help="Beta schedule")
-    parser.add_argument("--device", type=str, default="cuda", help="Device to sample on")
-    parser.add_argument("--sampling_method", type=str)
-
+    parser.add_argument("--experiment", type=str, help="eta or timestep")
+    parser.add_argument("--sampling_method", type=str, help="ddim or ddpm")
+    parser.add_argument("--min", type=float)
+    parser.add_argument("--max", type=float)
+    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--eta_fixed", type=float, default=0.0)
+    parser.add_argument("--timesteps_fixed", type=int, default=100)
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--beta_schedule", type=str, default="linear")
+    parser.add_argument("--device", type=str, default="cuda")
+    
     # Model Args
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--dataparallel", action="store_true")
@@ -127,19 +128,36 @@ def create_argparser():
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--patch_size", type=int, default=256)
-    parser.add_argument("--num_train_timesteps", type=int, default=1000, help="Number of timesteps to sample")
+    parser.add_argument("--num_train_timesteps", type=int, default=1000)
 
     args = parser.parse_args()
     return args
 
 def main():
     args = create_argparser()
-    timesteps = np.linspace(
-        args.timestep_min,
-        args.timestep_max,
-        args.timestep_count,
-        dtype=int
-    ).tolist()
+    model_dir = os.path.dirname(args.model_path)
+
+    if args.experiment == 'eta':
+        etas = np.linspace(
+            args.min,
+            args.max,
+            args.count,
+            dtype=np.float32
+        )
+        timesteps = [args.timesteps_fixed]
+        plt_path = os.path.join(model_dir, f"{args.batch_size}_samples_{args.sampling_method}_etarange_{args.min}_{args.max}_tsteps_{args.timesteps_fixed}.png")
+        values, const = etas, timesteps[0]
+    else:
+        timesteps = np.linspace(
+            args.min,
+            args.max,
+            args.count,
+            dtype=np.int32
+        )
+        etas = [args.eta_fixed]
+        plt_path = os.path.join(model_dir, f"{args.batch_size}_samples_{args.sampling_method}_tsteprange_{args.min}_{args.max}_eta_{args.eta_fixed}.png")
+        values, const = timesteps, etas[0]
+        
     model = UNet(
         args.patch_size,
         args.channels,
@@ -160,8 +178,7 @@ def main():
     model.to(args.device)
     model.load_state_dict(sd)
 
-    model_dir = os.path.dirname(args.model_path)
-    plt_path = os.path.join(model_dir, f"{args.batch_size}_samples_{args.sampling_method}_tsteps_{args.timestep_min}_{args.timestep_max}_{args.timestep_count}_eta_{args.eta}.png")
+    
 
     images = sample_images(
         model, 
@@ -171,9 +188,9 @@ def main():
         args.beta_schedule,
         args.device,
         args.num_train_timesteps,
-        args.eta
+        etas
     )
-    plot_images(images, plt_path)
+    plot_images(images, plt_path, values, const, args.experiment)
 
 if __name__ == "__main__":
     main()
